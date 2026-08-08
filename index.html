@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Neon Alley Brawl - Demo</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#08090d;color:#fff;font-family:monospace;touch-action:none}
+canvas{display:block;width:100%;height:100%;image-rendering:pixelated}
+#hint{position:fixed;left:50%;top:10px;transform:translateX(-50%);font-size:12px;opacity:.65;pointer-events:none;text-align:center}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hint">NEON ALLEY BRAWL • demo originale • modalità orizzontale consigliata</div>
+<script>
+const c=document.getElementById('game'),x=c.getContext('2d');
+let W,H,DPR,scale=1;
+function resize(){DPR=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHeight;c.width=W*DPR;c.height=H*DPR;x.setTransform(DPR,0,0,DPR,0,0);scale=Math.min(W/960,H/540); }
+addEventListener('resize',resize); resize();
+
+const keys={left:false,right:false,up:false,down:false,punch:false,kick:false,jump:false};
+let audio=null;
+function beep(freq=180,dur=.05,type='square'){try{audio??=new (AudioContext||webkitAudioContext)();let o=audio.createOscillator(),g=audio.createGain();o.type=type;o.frequency.value=freq;g.gain.setValueAtTime(.04,audio.currentTime);g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+dur);o.connect(g);g.connect(audio.destination);o.start();o.stop(audio.currentTime+dur)}catch(e){}}
+
+function setupTouch(){
+ const b=(label,cls,xp,yp)=>{let e=document.createElement('button');e.textContent=label;e.className='t '+cls;e.style.left=xp+'%';e.style.top=yp+'%';document.body.appendChild(e);
+  const on=(ev,v)=>{ev.preventDefault();keys[cls]=v;if(v)beep(cls==='punch'?360:cls==='kick'?220:110,.035)};
+  e.addEventListener('pointerdown',ev=>on(ev,true));e.addEventListener('pointerup',ev=>on(ev,false));e.addEventListener('pointercancel',ev=>on(ev,false));e.addEventListener('pointerout',ev=>on(ev,false));
+ };
+ b('◀','left',4,72);b('▶','right',14,72);b('▲','up',9,58);
+ b('PUNCH','punch',73,62);b('KICK','kick',84,72);b('JUMP','jump',73,80);
+}
+const style=document.createElement('style');style.textContent=`button.t{position:fixed;width:72px;height:52px;border:2px solid #ffffff55;border-radius:12px;background:#111a;color:#fff;font:bold 12px monospace;touch-action:none;user-select:none;z-index:4}.t:active{background:#ffffff33;transform:scale(.96)}`;document.head.appendChild(style);setupTouch();
+
+addEventListener('keydown',e=>{let m={ArrowLeft:'left',ArrowRight:'right',ArrowUp:'up',ArrowDown:'down',z:'punch',x:'kick',c:'jump'}[e.key];if(m){keys[m]=true;e.preventDefault()}});
+addEventListener('keyup',e=>{let m={ArrowLeft:'left',ArrowRight:'right',ArrowUp:'up',ArrowDown:'down',z:'punch',x:'kick',c:'jump'}[e.key];if(m)keys[m]=false});
+
+const player={x:150,y:365,hp:100,vy:0,face:1,atk:0,atkType:'',hurt:0,score:0};
+let enemies=[
+ {x:510,y:365,hp:55,face:-1,type:0,cd:0,hurt:0},
+ {x:690,y:365,hp:70,face:-1,type:1,cd:.7,hurt:0},
+ {x:840,y:365,hp:55,face:-1,type:0,cd:1.2,hurt:0}
+];
+let boss=null, camera=0, win=false, flash=0, world=1500, t=0;
+
+function rect(px,py,w,h,col){x.fillStyle=col;x.fillRect((px-camera)*scale,py*scale,w*scale,h*scale)}
+function text(s,px,py,size=16){x.font=`bold ${size*scale}px monospace`;x.fillStyle='#fff';x.fillText(s,(px-camera)*scale,py*scale)}
+function drawScene(){
+ x.fillStyle='#08090d';x.fillRect(0,0,W,H);
+ // sky
+ x.fillStyle='#12152a';x.fillRect(0,0,W,H*.68);
+ // skyline
+ for(let i=-1;i<22;i++){let bx=i*90-(camera*.25%90),bh=70+(i*37%120);x.fillStyle=i%2?'#171b35':'#20213c';x.fillRect(bx,H*.68-bh*scale,70*scale,bh*scale)}
+ // moon / neon
+ x.fillStyle='#f3df8a';x.fillRect((760-camera*.18)*scale,70*scale,32*scale,32*scale);
+ // ground
+ x.fillStyle='#24232a';x.fillRect(0,385*scale,W,155*scale);
+ x.fillStyle='#37343a';x.fillRect(0,385*scale,W,5*scale);
+ for(let i=-1;i<30;i++){let bx=i*120-(camera%120);x.fillStyle='#4b454b';x.fillRect(bx*scale,445*scale,60*scale,4*scale)}
+ // neon signs
+ rect(330,160,150,62,'#241c35');text('ARCADE',350,202,22);
+ rect(1020,130,190,70,'#202b2e');text('NIGHT',1050,175,28);
+ // crates
+ rect(1200,330,48,55,'#76513c');rect(1250,350,55,35,'#6a4837');
+}
+
+function drawFighter(o,isPlayer=false){
+ let px=o.x,py=o.y;
+ let hurt=o.hurt>0;
+ // shadow
+ x.fillStyle='#0008';x.beginPath();x.ellipse((px-camera)*scale,(390)*scale,28*scale,7*scale,0,0,Math.PI*2);x.fill();
+ let body=isPlayer?'#e8e8f0':'#c84c50', dark=isPlayer?'#5d65a9':'#572d45', skin='#d99b73';
+ if(o.atk&&isPlayer){rect(px+(o.face>0?22:-48),py-70,60,12,'#f2d26b')}
+ // legs
+ rect(px-16,py-34,13,34,dark);rect(px+5,py-34,13,34,dark);
+ // torso
+ rect(px-18,py-92,40,58,body);
+ // belt
+ rect(px-18,py-44,40,8,'#171923');
+ // head/hair
+ rect(px-15,py-116,34,28,skin);rect(px-17,py-122,38,12,'#19151e');
+ // arm / attack
+ if(o.atk){rect(px+(o.face>0?18:-38),py-88,20,12,skin)}
+ else {rect(px+(o.face>0?14:-30),py-82,18,12,skin)}
+ // eye direction
+ rect(px+(o.face>0?10:-8),py-108,5,4,'#111');
+}
+
+function hitTest(){
+ for(const e of enemies.concat(boss?[boss]:[])){
+   if(e.hp<=0)continue;
+   let dx=e.x-player.x, dy=Math.abs(e.y-player.y);
+   if(Math.abs(dx)<72 && dy<38){
+     let dmg=player.atkType==='kick'?18:12;
+     e.hp-=dmg;e.hurt=.15;player.score+=dmg*10;flash=.08;beep(90,.045);
+     if(e.hp<=0)player.score+=500;
+   }
+ }
+}
+function update(dt){
+ t+=dt; if(win)return;
+ if(flash>0)flash-=dt;
+ player.hurt=Math.max(0,player.hurt-dt);
+ let moving=0;
+ if(keys.left){player.x-=150*dt;player.face=-1;moving=-1}
+ if(keys.right){player.x+=150*dt;player.face=1;moving=1}
+ player.x=Math.max(60,Math.min(world-80,player.x));
+ if(keys.jump && player.vy===0){player.vy=-330;beep(140,.05)}
+ player.vy+=800*dt;player.y+=player.vy*dt;if(player.y>365){player.y=365;player.vy=0}
+ if((keys.punch||keys.kick)&&player.atk<=0){player.atk=.22;player.atkType=keys.kick?'kick':'punch';hitTest()}
+ if(player.atk>0)player.atk-=dt;
+
+ for(const e of enemies){
+   if(e.hp<=0)continue;e.hurt=Math.max(0,e.hurt-dt);e.cd-=dt;
+   let dx=player.x-e.x;
+   if(Math.abs(dx)>65)e.x+=Math.sign(dx)*(55+(e.type*20))*dt,e.face=Math.sign(dx)||e.face;
+   else if(e.cd<=0 && player.hurt<=0){player.hurt=.28;player.hp-=e.type?12:7;e.cd=e.type?1.1:.8;beep(65,.07)}
+ }
+ if(enemies.every(e=>e.hp<=0)&&!boss)boss={x:1120,y:365,hp:150,face:-1,cd:0,hurt:0};
+ if(boss&&boss.hp>0){
+   boss.hurt=Math.max(0,boss.hurt-dt);boss.cd-=dt;let dx=player.x-boss.x;
+   if(Math.abs(dx)>70)boss.x+=Math.sign(dx)*38*dt;
+   else if(boss.cd<=0){player.hurt=.35;player.hp-=16;boss.cd=1.0;beep(55,.1)}
+ }
+ if(boss&&boss.hp<=0)win=true;
+ camera=Math.max(0,Math.min(world-W/scale,player.x-300));
+ if(player.hp<=0){player.hp=100;player.x=150;enemies.forEach((e,i)=>e.hp=i===1?70:55);boss=null;player.score=Math.max(0,player.score-500)}
+}
+function drawUI(){
+ x.fillStyle='#0b0c12cc';x.fillRect(0,0,W,42*scale);
+ text('NEON ALLEY BRAWL',16,27,15);text('SCORE '+String(player.score).padStart(5,'0'),340,27,14);
+ // hp
+ x.fillStyle='#1b1720';x.fillRect(650*scale,12*scale,210*scale,16*scale);
+ x.fillStyle='#e44';x.fillRect(650*scale,12*scale,210*scale*Math.max(0,player.hp/100),16*scale);
+ text('HP',625,26,12);
+ if(win){x.fillStyle='#000b';x.fillRect(0,0,W,H);text('STAGE CLEAR!',300,240,34);text('SCORE '+player.score,365,275,18);text('Tocca lo schermo per ricominciare',255,310,14)}
+}
+function draw(){
+ drawScene();
+ enemies.filter(e=>e.hp>0).forEach(e=>drawFighter(e));
+ if(boss&&boss.hp>0)drawFighter(boss);
+ drawFighter(player,true);
+ if(boss&&boss.hp>0){x.fillStyle='#21151c';x.fillRect(310*scale,50*scale,340*scale,12*scale);x.fillStyle='#f0a';x.fillRect(310*scale,50*scale,340*scale*(boss.hp/150),12*scale);text('BOSS',655,60,12)}
+ drawUI();
+}
+let last=performance.now();
+function loop(now){let dt=Math.min(.033,(now-last)/1000);last=now;update(dt);draw();requestAnimationFrame(loop)}
+addEventListener('pointerdown',()=>{if(audio?.state==='suspended')audio.resume();if(win){win=false;player.x=150;player.score=0;player.hp=100;enemies=[{x:510,y:365,hp:55,face:-1,type:0,cd:0,hurt:0},{x:690,y:365,hp:70,face:-1,type:1,cd:.7,hurt:0},{x:840,y:365,hp:55,face:-1,type:0,cd:1.2,hurt:0}];boss=null}});
+loop(last);
+</script>
+</body>
+</html>
